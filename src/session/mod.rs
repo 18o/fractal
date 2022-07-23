@@ -117,7 +117,7 @@ mod imp {
         pub content: TemplateChild<Content>,
         #[template_child]
         pub media_viewer: TemplateChild<MediaViewer>,
-        pub client: RefCell<Option<Client>>,
+        pub client: OnceCell<Client>,
         pub item_list: OnceCell<ItemList>,
         pub user: OnceCell<User>,
         pub is_ready: Cell<bool>,
@@ -479,7 +479,7 @@ impl Session {
         let priv_ = self.imp();
         let error = match result {
             Ok((client, session)) => {
-                priv_.client.replace(Some(client));
+                priv_.client.set(client).unwrap();
                 let user = User::new(self, &session.user_id);
                 priv_.user.set(user).unwrap();
                 self.notify("user");
@@ -682,9 +682,9 @@ impl Session {
     pub fn client(&self) -> Client {
         self.imp()
             .client
-            .borrow()
-            .clone()
+            .get()
             .expect("The session isn't ready")
+            .clone()
     }
 
     pub fn is_offline(&self) -> bool {
