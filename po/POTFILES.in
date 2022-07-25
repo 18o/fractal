@@ -45,6 +45,7 @@ src/components/editable_avatar.rs
 src/components/location_viewer.rs
 src/components/media_content_viewer.rs
 src/error_page.rs
+src/greeter.rs
 src/login/mod.rs
 src/secret.rs
 src/session/account_settings/devices_page/device_list.rs

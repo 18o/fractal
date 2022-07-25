@@ -29,6 +29,24 @@
           </object>
         </child>
         <child>
+          <object class="GtkInfoBar" id="offline_info_bar">
+            <property name="message-type">warning</property>
+            <child>
+              <object class="AdwClamp">
+                <property name="maximum-size">440</property>
+                <property name="tightening-threshold">340</property>
+                <property name="hexpand">true</property>
+                <child>
+                  <object class="GtkLabel" id="offline_info_bar_label">
+                    <property name="justify">center</property>
+                    <property name="wrap">True</property>
+                  </object>
+                </child>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
           <object class="GtkStack" id="main_stack">
             <property name="transition-type">crossfade</property>
             <property name="vexpand">True</property>
@@ -229,3 +247,5 @@
     </child>
   </template>
 </interface>
+
+

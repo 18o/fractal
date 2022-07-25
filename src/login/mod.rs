@@ -1,6 +1,6 @@
 use adw::{prelude::*, subclass::prelude::BinImpl};
 use gettextrs::gettext;
-use gtk::{self, glib, glib::clone, subclass::prelude::*, CompositeTemplate};
+use gtk::{self, gio, glib, glib::clone, subclass::prelude::*, CompositeTemplate};
 use log::{debug, warn};
 use matrix_sdk::{
     config::RequestConfig,
@@ -63,6 +63,10 @@ mod imp {
         pub sso_box: TemplateChild<gtk::Box>,
         #[template_child]
         pub more_sso_option: TemplateChild<gtk::Button>,
+        #[template_child]
+        pub offline_info_bar: TemplateChild<gtk::InfoBar>,
+        #[template_child]
+        pub offline_info_bar_label: TemplateChild<gtk::Label>,
         pub prepared_source_id: RefCell<Option<SignalHandlerId>>,
         pub logged_out_source_id: RefCell<Option<SignalHandlerId>>,
         pub ready_source_id: RefCell<Option<SignalHandlerId>>,
@@ -158,6 +162,13 @@ mod imp {
             obj.action_set_enabled("login.next", false);
 
             self.parent_constructed(obj);
+
+            let monitor = gio::NetworkMonitor::default();
+            monitor.connect_network_changed(clone!(@weak obj => move |_, _| {
+                obj.update_network_state();
+            }));
+
+            obj.update_network_state();
 
             self.main_stack
                 .connect_visible_child_notify(clone!(@weak obj => move |_|
@@ -632,6 +643,34 @@ impl Login {
         self.root()
             .and_then(|root| root.downcast().ok())
             .expect("Login needs to have a parent window")
+    }
+
+    fn update_network_state(&self) {
+        let priv_ = self.imp();
+        let monitor = gio::NetworkMonitor::default();
+
+        if !monitor.is_network_available() {
+            priv_
+                .offline_info_bar_label
+                .set_label(&gettext("No network connection"));
+            priv_.offline_info_bar.set_revealed(true);
+            self.update_next_action();
+            priv_.sso_box.set_sensitive(false);
+            priv_.more_sso_option.set_sensitive(false);
+        } else if monitor.connectivity() < gio::NetworkConnectivity::Full {
+            priv_
+                .offline_info_bar_label
+                .set_label(&gettext("No Internet connection"));
+            priv_.offline_info_bar.set_revealed(true);
+            self.update_next_action();
+            priv_.sso_box.set_sensitive(true);
+            priv_.more_sso_option.set_sensitive(true);
+        } else {
+            priv_.offline_info_bar.set_revealed(false);
+            self.update_next_action();
+            priv_.sso_box.set_sensitive(true);
+            priv_.more_sso_option.set_sensitive(true);
+        }
     }
 }
 

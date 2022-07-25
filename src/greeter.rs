@@ -1,5 +1,7 @@
 use adw::subclass::prelude::BinImpl;
-use gtk::{self, glib, prelude::*, subclass::prelude::*, CompositeTemplate};
+use gtk::{self, gio, glib, glib::clone, prelude::*, subclass::prelude::*, CompositeTemplate};
+
+use crate::gettext;
 
 mod imp {
     use glib::subclass::InitializingObject;
@@ -13,6 +15,12 @@ mod imp {
         pub back_button: TemplateChild<gtk::Button>,
         #[template_child]
         pub login_button: TemplateChild<gtk::Button>,
+        #[template_child]
+        pub development_info_bar: TemplateChild<gtk::InfoBar>,
+        #[template_child]
+        pub offline_info_bar: TemplateChild<gtk::InfoBar>,
+        #[template_child]
+        pub offline_info_bar_label: TemplateChild<gtk::Label>,
     }
 
     #[glib::object_subclass]
@@ -31,7 +39,18 @@ mod imp {
         }
     }
 
-    impl ObjectImpl for Greeter {}
+    impl ObjectImpl for Greeter {
+        fn constructed(&self, obj: &Self::Type) {
+            self.parent_constructed(obj);
+
+            let monitor = gio::NetworkMonitor::default();
+            monitor.connect_network_changed(clone!(@weak obj => move |_, _| {
+                obj.update_network_state();
+            }));
+
+            obj.update_network_state();
+        }
+    }
 
     impl WidgetImpl for Greeter {}
 
@@ -50,6 +69,28 @@ impl Greeter {
 
     pub fn default_widget(&self) -> gtk::Widget {
         self.imp().login_button.get().upcast()
+    }
+
+    fn update_network_state(&self) {
+        let priv_ = self.imp();
+        let monitor = gio::NetworkMonitor::default();
+
+        if !monitor.is_network_available() {
+            priv_.development_info_bar.set_revealed(false);
+            priv_
+                .offline_info_bar_label
+                .set_label(&gettext("No network connection"));
+            priv_.offline_info_bar.set_revealed(true);
+        } else if monitor.connectivity() < gio::NetworkConnectivity::Full {
+            priv_.development_info_bar.set_revealed(false);
+            priv_
+                .offline_info_bar_label
+                .set_label(&gettext("No Internet connection"));
+            priv_.offline_info_bar.set_revealed(true);
+        } else {
+            priv_.development_info_bar.set_revealed(true);
+            priv_.offline_info_bar.set_revealed(false);
+        }
     }
 }
 
