@@ -243,11 +243,9 @@ impl DeviceRow {
     }
 
     fn logout(&self) {
-        spawn!(clone!(@weak self as obj => async move {
-            if let Some(device) = obj.device() {
-                device.session().logout(true).await;
-            }
-        }));
+        if let Some(device) = self.device() {
+            device.session().logout()
+        }
     }
 }
 

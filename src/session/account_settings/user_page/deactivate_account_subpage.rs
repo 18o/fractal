@@ -194,7 +194,7 @@ impl DeactivateAccountSubpage {
             Ok(_) => {
                 if let Some(session) = self.session() {
                     toast!(session, gettext("Account successfully deactivated"));
-                    session.handle_logged_out();
+                    session.cleanup_session().await;
                 }
                 self.activate_action("account-settings.close", None)
                     .unwrap();

@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::error::Error as JsonError;
 use url::Url;
 
-use crate::{config::APP_ID, gettext_f, ErrorSubpage};
+use crate::{config::APP_ID, gettext_f, ErrorSubpage, UserFacingError};
 
 /// Any error that can happen when interacting with the secret service.
 #[derive(Debug, Clone)]
@@ -38,27 +38,23 @@ impl From<glib::Error> for SecretError {
     }
 }
 
-impl fmt::Display for SecretError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                Self::CorruptSession((message, _)) => message.to_owned(),
-                Self::Libsecret(error) if error.is::<libsecret::Error>() => {
-                    match error.kind::<libsecret::Error>() {
-                        Some(libsecret::Error::Protocol) => error.message().to_owned(),
-                        Some(libsecret::Error::IsLocked) => {
-                            gettext("Could not unlock the secret storage")
-                        }
-                        _ => gettext(
-                            "An unknown error occurred when interacting with the secret storage",
-                        ),
+impl UserFacingError for SecretError {
+    fn to_user_facing(self) -> String {
+        match self {
+            Self::CorruptSession((message, _)) => message,
+            Self::Libsecret(error) if error.is::<libsecret::Error>() => {
+                match error.kind::<libsecret::Error>() {
+                    Some(libsecret::Error::Protocol) => error.message().to_owned(),
+                    Some(libsecret::Error::IsLocked) => {
+                        gettext("Could not unlock the secret storage")
                     }
+                    _ => gettext(
+                        "An unknown error occurred when interacting with the secret storage",
+                    ),
                 }
-                _ => gettext("An unknown error occurred when interacting with the secret storage"),
             }
-        )
+            _ => gettext("An unknown error occurred when interacting with the secret storage"),
+        }
     }
 }
 
