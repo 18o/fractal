@@ -34,6 +34,10 @@ mod imp {
         pub sessions: TemplateChild<gtk::Stack>,
         #[template_child]
         pub toast_overlay: TemplateChild<adw::ToastOverlay>,
+        #[template_child]
+        pub offline_info_bar: TemplateChild<gtk::InfoBar>,
+        #[template_child]
+        pub offline_info_bar_label: TemplateChild<gtk::Label>,
         pub account_switcher: AccountSwitcher,
     }
 
@@ -127,6 +131,13 @@ mod imp {
             }));
 
             self.account_switcher.set_pages(Some(self.sessions.pages()));
+
+            let monitor = gio::NetworkMonitor::default();
+            monitor.connect_network_changed(clone!(@weak obj => move |_, _| {
+                obj.update_network_state();
+            }));
+
+            obj.update_network_state();
         }
     }
 
@@ -324,5 +335,24 @@ impl Window {
 
     pub fn account_switcher(&self) -> &AccountSwitcher {
         &self.imp().account_switcher
+    }
+
+    fn update_network_state(&self) {
+        let priv_ = self.imp();
+        let monitor = gio::NetworkMonitor::default();
+
+        if !monitor.is_network_available() {
+            priv_
+                .offline_info_bar_label
+                .set_label(&gettext("No network connection"));
+            priv_.offline_info_bar.set_revealed(true);
+        } else if monitor.connectivity() < gio::NetworkConnectivity::Full {
+            priv_
+                .offline_info_bar_label
+                .set_label(&gettext("No Internet connection"));
+            priv_.offline_info_bar.set_revealed(true);
+        } else {
+            priv_.offline_info_bar.set_revealed(false);
+        }
     }
 }
