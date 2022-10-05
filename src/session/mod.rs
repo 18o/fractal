@@ -10,7 +10,13 @@ mod sidebar;
 mod user;
 pub mod verification;
 
-use std::{collections::HashSet, convert::TryFrom, fs, path::PathBuf, time::Duration};
+use std::{
+    collections::HashSet,
+    convert::TryFrom,
+    fs,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use adw::subclass::prelude::BinImpl;
 use futures::StreamExt;
@@ -68,7 +74,7 @@ pub use self::{
     user::{User, UserActions, UserExt},
 };
 use crate::{
-    secret,
+    gettext_f, secret,
     secret::{Secret, StoredSession},
     session::sidebar::ItemList,
     spawn, spawn_tokio, toast,
@@ -96,10 +102,57 @@ impl UserFacingError for ClientSetupError {
     }
 }
 
+#[derive(Debug)]
+pub enum LoginError {
+    /// Errors that happen during the login process
+    Login(ClientSetupError),
+    /// Errors that happen while restoring a session
+    RestoreSession(ClientSetupError),
+    /// Errors that happen when saving a session to SecretService
+    StoreSession(secret::SecretError),
+}
+
+impl UserFacingError for LoginError {
+    fn to_user_facing(self) -> String {
+        match self {
+            LoginError::Login(err) => gettext_f(
+                "Failed to login: {error}",
+                &[("error", &err.to_user_facing())],
+            ),
+            LoginError::RestoreSession(err) => gettext_f(
+                "Failed to restore session: {error}",
+                &[("error", &err.to_user_facing())],
+            ),
+            LoginError::StoreSession(err) => gettext_f(
+                "Failed to store session: {error}",
+                &[("error", &err.to_user_facing())],
+            ),
+        }
+    }
+}
+
+#[derive(Debug, Hash, Eq, PartialEq, PartialOrd, Clone, Copy, glib::Enum)]
+#[repr(u32)]
+#[enum_type(name = "SessionState")]
+pub enum State {
+    Created,
+    LoggedIn,
+    CrossSigningSetup,
+    Content,
+    LoggedOut,
+    Cleaned,
+}
+
+impl std::default::Default for State {
+    fn default() -> Self {
+        State::Created
+    }
+}
+
 mod imp {
     use std::cell::{Cell, RefCell};
 
-    use glib::subclass::{InitializingObject, Signal};
+    use glib::subclass::InitializingObject;
     use once_cell::{sync::Lazy, unsync::OnceCell};
 
     use super::*;
@@ -117,12 +170,12 @@ mod imp {
         pub content: TemplateChild<Content>,
         #[template_child]
         pub media_viewer: TemplateChild<MediaViewer>,
-        pub client: RefCell<Option<Client>>,
+        pub client: OnceCell<Client>,
         pub item_list: OnceCell<ItemList>,
         pub user: OnceCell<User>,
-        pub is_ready: Cell<bool>,
-        pub prepared: Cell<bool>,
-        pub logout_on_dispose: Cell<bool>,
+        pub state: Cell<State>,
+        /// Whether this session received any sync response
+        pub was_synced: Cell<bool>,
         pub info: OnceCell<StoredSession>,
         pub sync_tokio_handle: RefCell<Option<JoinHandle<()>>>,
         pub offline_handler_id: RefCell<Option<SignalHandlerId>>,
@@ -157,14 +210,11 @@ mod imp {
             );
 
             klass.install_action("session.logout", None, move |session, _, _| {
-                spawn!(clone!(@weak session => async move {
-                    session.imp().logout_on_dispose.set(false);
-                    session.logout(true).await
-                }));
+                session.logout()
             });
 
             klass.install_action("session.show-content", None, move |session, _, _| {
-                session.show_content();
+                spawn!(clone!(@weak session => async move { session.show_content().await; }));
             });
 
             klass.install_action("session.room-creation", None, move |session, _, _| {
@@ -228,6 +278,14 @@ mod imp {
                         false,
                         glib::ParamFlags::READABLE,
                     ),
+                    glib::ParamSpecEnum::new(
+                        "state",
+                        "State",
+                        "The the state of the session",
+                        State::static_type(),
+                        State::default() as i32,
+                        glib::ParamFlags::READABLE,
+                    ),
                 ]
             });
 
@@ -239,24 +297,9 @@ mod imp {
                 "item-list" => obj.item_list().to_value(),
                 "user" => obj.user().to_value(),
                 "offline" => obj.is_offline().to_value(),
+                "state" => obj.state().to_value(),
                 _ => unimplemented!(),
             }
-        }
-
-        fn signals() -> &'static [Signal] {
-            static SIGNALS: Lazy<Vec<Signal>> = Lazy::new(|| {
-                vec![
-                    Signal::builder(
-                        "prepared",
-                        &[Option::<String>::static_type().into()],
-                        <()>::static_type().into(),
-                    )
-                    .build(),
-                    Signal::builder("ready", &[], <()>::static_type().into()).build(),
-                    Signal::builder("logged-out", &[], <()>::static_type().into()).build(),
-                ]
-            });
-            SIGNALS.as_ref()
         }
 
         fn constructed(&self, obj: &Self::Type) {
@@ -285,7 +328,7 @@ mod imp {
             self.offline_handler_id.replace(Some(handler_id));
         }
 
-        fn dispose(&self, obj: &Self::Type) {
+        fn dispose(&self, _obj: &Self::Type) {
             // Needs to be disconnected or else it may restart the sync
             if let Some(handler_id) = self.offline_handler_id.take() {
                 gio::NetworkMonitor::default().disconnect(handler_id);
@@ -293,10 +336,6 @@ mod imp {
 
             if let Some(handle) = self.sync_tokio_handle.take() {
                 handle.abort();
-            }
-
-            if self.logout_on_dispose.get() {
-                glib::MainContext::default().block_on(obj.logout(true));
             }
         }
     }
@@ -343,9 +382,7 @@ impl Session {
         username: String,
         password: String,
         use_discovery: bool,
-    ) {
-        self.imp().logout_on_dispose.set(true);
-
+    ) -> Result<(), LoginError> {
         let mut path = glib::user_data_dir();
         path.push(glib::uuid_string_random().as_str());
 
@@ -358,42 +395,51 @@ impl Session {
                 .collect()
         };
 
+        let path_clone = path.clone();
         let handle = spawn_tokio!(async move {
-            let client =
-                create_client(&homeserver, path.clone(), passphrase.clone(), use_discovery).await?;
+            let client = create_client(
+                &homeserver,
+                path_clone.clone(),
+                passphrase.clone(),
+                use_discovery,
+            )
+            .await?;
 
             let response = client
                 .login_username(&username, &password)
                 .initial_device_display_name("Fractal")
                 .send()
-                .await;
-            match response {
-                Ok(response) => Ok((
-                    client,
-                    StoredSession {
-                        homeserver,
-                        path,
-                        user_id: response.user_id,
-                        device_id: response.device_id,
-                        secret: Secret {
-                            passphrase,
-                            access_token: response.access_token,
-                        },
+                .await?;
+
+            Ok((
+                client,
+                StoredSession {
+                    homeserver,
+                    path: path_clone,
+                    user_id: response.user_id,
+                    device_id: response.device_id,
+                    secret: Secret {
+                        passphrase,
+                        access_token: response.access_token,
                     },
-                )),
-                Err(error) => {
-                    // Remove the store created by Client::new()
-                    fs::remove_dir_all(path).unwrap();
-                    Err(error.into())
-                }
-            }
+                },
+            ))
         });
 
-        self.handle_login_result(handle.await.unwrap(), true).await;
+        match handle.await.unwrap() {
+            Ok((client, session)) => self.handle_login_result(client, session, true).await,
+            Err(error) => {
+                self.cleanup_files(path);
+                Err(LoginError::Login(error))
+            }
+        }
     }
 
-    pub async fn login_with_sso(&self, homeserver: Url, idp_id: Option<String>) {
-        self.imp().logout_on_dispose.set(true);
+    pub async fn login_with_sso(
+        &self,
+        homeserver: Url,
+        idp_id: Option<String>,
+    ) -> Result<(), LoginError> {
         let mut path = glib::user_data_dir();
         path.push(glib::uuid_string_random().as_str());
         let passphrase: String = {
@@ -404,8 +450,11 @@ impl Session {
                 .map(char::from)
                 .collect()
         };
+
+        let path_clone = path.clone();
         let handle = spawn_tokio!(async move {
-            let client = create_client(&homeserver, path.clone(), passphrase.clone(), true).await?;
+            let client =
+                create_client(&homeserver, path_clone.clone(), passphrase.clone(), true).await?;
 
             let mut login = client
                 .login_sso(|sso_url| async move {
@@ -421,33 +470,37 @@ impl Session {
                 login = login.identity_provider_id(idp_id);
             }
 
-            let response = login.send().await;
-            match response {
-                Ok(response) => Ok((
-                    client,
-                    StoredSession {
-                        homeserver,
-                        path,
-                        user_id: response.user_id,
-                        device_id: response.device_id,
-                        secret: Secret {
-                            passphrase,
-                            access_token: response.access_token,
-                        },
+            let response = login.send().await?;
+
+            Ok((
+                client,
+                StoredSession {
+                    homeserver,
+                    path: path_clone,
+                    user_id: response.user_id,
+                    device_id: response.device_id,
+                    secret: Secret {
+                        passphrase,
+                        access_token: response.access_token,
                     },
-                )),
-                Err(error) => {
-                    // Remove the store created by Client::new()
-                    fs::remove_dir_all(path).unwrap();
-                    Err(error.into())
-                }
-            }
+                },
+            ))
         });
 
-        self.handle_login_result(handle.await.unwrap(), true).await;
+        match handle.await.unwrap() {
+            Ok((client, session)) => self.handle_login_result(client, session, true).await,
+            Err(error) => {
+                self.cleanup_files(&path);
+                Err(LoginError::Login(error))
+            }
+        }
     }
 
-    pub async fn login_with_previous_session(&self, session: StoredSession) {
+    pub async fn login_with_previous_session(
+        &self,
+        session: StoredSession,
+    ) -> Result<(), LoginError> {
+        let path = session.path.clone();
         let handle = spawn_tokio!(async move {
             let client = create_client(
                 &session.homeserver,
@@ -464,70 +517,69 @@ impl Session {
                     access_token: session.secret.access_token.clone(),
                     refresh_token: None,
                 })
-                .await
-                .map(|_| (client, session))
-                .map_err(Into::into)
+                .await?;
+
+            let was_synced = client.sync_token().await.is_some();
+
+            Ok((client, session, was_synced))
         });
 
-        self.handle_login_result(handle.await.unwrap(), false).await;
+        match handle.await.unwrap() {
+            Ok((client, session, was_synced)) => {
+                self.imp().was_synced.set(was_synced);
+                self.handle_login_result(client, session, true).await
+            }
+            Err(error) => {
+                self.cleanup_files(path);
+                Err(LoginError::RestoreSession(error))
+            }
+        }
     }
 
     async fn handle_login_result(
         &self,
-        result: Result<(Client, StoredSession), ClientSetupError>,
+        client: Client,
+        session: StoredSession,
         store_session: bool,
-    ) {
+    ) -> Result<(), LoginError> {
         let priv_ = self.imp();
-        let error = match result {
-            Ok((client, session)) => {
-                priv_.client.replace(Some(client));
-                let user = User::new(self, &session.user_id);
-                priv_.user.set(user).unwrap();
-                self.notify("user");
 
-                self.update_user_profile();
+        if store_session {
+            if let Err(error) = secret::store_session(&session).await {
+                // Destroy the created session
+                self.cleanup_token(client).await;
+                self.cleanup_files(session.path);
 
-                if store_session {
-                    if let Err(error) = secret::store_session(&session).await {
-                        warn!("Couldn't store session: {:?}", error);
-                        if let Some(window) = self.parent_window() {
-                            window.switch_to_error_page(
-                                &format!("{}\n\n{}", gettext("Unable to store session"), error),
-                                error,
-                            );
-                        }
-                        self.logout(false).await;
-                        fs::remove_dir_all(session.path).unwrap();
-                        return;
-                    }
-                };
-
-                priv_.info.set(session).unwrap();
-                self.update_offline().await;
-
-                self.room_list().load();
-                self.setup_direct_room_handler();
-                self.setup_room_encrypted_changes();
-
-                self.set_is_prepared(true);
-                self.sync();
-
-                None
-            }
-            Err(error) => {
-                error!("Failed to prepare the session: {:?}", error);
-
-                priv_.logout_on_dispose.set(false);
-
-                Some(error.to_user_facing())
+                return Err(LoginError::StoreSession(error));
             }
         };
 
-        self.emit_by_name::<()>("prepared", &[&error]);
+        priv_.client.set(client).unwrap();
+        let user = User::new(self, &session.user_id);
+        priv_.user.set(user).unwrap();
+        self.notify("user");
+
+        self.update_user_profile();
+
+        priv_.info.set(session).unwrap();
+
+        self.room_list().load();
+        self.setup_direct_room_handler();
+        self.setup_room_encrypted_changes();
+
+        self.set_state(State::LoggedIn);
+
+        self.sync();
+
+        if priv_.was_synced.get() {
+            self.show_content().await;
+        }
+
+        Ok(())
     }
 
     fn sync(&self) {
-        if !self.is_prepared() || self.is_offline() {
+        if self.state() < State::LoggedIn || self.state() >= State::LoggedOut || self.is_offline() {
             return;
         }
 
@@ -560,9 +612,10 @@ impl Session {
                 let session_weak = session_weak.clone();
                 let ctx = glib::MainContext::default();
                 ctx.spawn(async move {
-                    if let Some(session) = session_weak.upgrade() {
-                        session.handle_sync_response(response);
-                    }
+                    let session = session_weak
+                        .upgrade()
+                        .expect("Session doesn't exist anymore");
+                    session.handle_sync_response(response);
                 });
             }
         });
@@ -570,75 +623,45 @@ impl Session {
         self.imp().sync_tokio_handle.replace(Some(handle));
     }
 
-    async fn create_session_verification(&self) {
-        let stack = &self.imp().stack;
-
-        let widget = SessionVerification::new(self);
-        stack.add_named(&widget, Some("session-verification"));
-        stack.set_visible_child(&widget);
-        if let Some(window) = self.parent_window() {
-            window.switch_to_sessions_page();
-        }
-    }
-
-    fn mark_ready(&self) {
+    async fn setup_cross_signing(&self) -> bool {
         let client = self.client();
+        let encryption = client.encryption();
         let user_id = self.user().unwrap().user_id();
 
-        self.imp().is_ready.set(true);
+        if !self.has_cross_signing_keys().await {
+            self.set_state(State::CrossSigningSetup);
 
-        let encryption = client.encryption();
-        let need_new_identity = spawn_tokio!(async move {
-            // If there is an error just assume we don't need a new identity since
-            // we will try again during the session verification
-            encryption
-                .get_user_identity(&user_id)
-                .await
-                .map_or(false, |identity| identity.is_none())
-        });
+            let need_new_identity = spawn_tokio!(async move {
+                // If there is an error just assume we don't need a new identity since
+                // we will try again during the session verification
+                encryption
+                    .get_user_identity(&user_id)
+                    .await
+                    .map_or(false, |identity| identity.is_none())
+            });
 
-        spawn!(clone!(@weak self as obj => async move {
-            let priv_ = obj.imp();
-            if !obj.has_cross_signing_keys().await {
-                if need_new_identity.await.unwrap() {
-                    debug!("No E2EE identity found for this user, we need to create a new one…");
-                    let encryption = obj.client().encryption();
+            if need_new_identity.await.unwrap() {
+                let encryption = self.client().encryption();
 
-                    let handle = spawn_tokio!(async move { encryption.bootstrap_cross_signing(None).await });
-                    if handle.await.is_ok() {
-                        priv_.stack.set_visible_child(&*priv_.leaflet);
-                        if let Some(window) = obj.parent_window() {
-                            window.switch_to_sessions_page();
-                        }
-                        return;
-                    }
+                // TODO: ask user if we should create a new identity for them
+                // TODO: handle errors
+                let handle =
+                    spawn_tokio!(async move { encryption.bootstrap_cross_signing(None).await });
+                if handle.await.unwrap().is_ok() {
+                    return false;
                 }
-
-                debug!("The cross-signing keys were not found, we need to verify this session…");
-                priv_.logout_on_dispose.set(true);
-                obj.create_session_verification().await;
-
-                return;
             }
 
-            obj.show_content();
-        }));
-    }
+            let widget = SessionVerification::new(self);
+            self.imp()
+                .stack
+                .add_named(&widget, Some("session-verification"));
+            self.imp().stack.set_visible_child(&widget);
 
-    fn is_ready(&self) -> bool {
-        self.imp().is_ready.get()
-    }
-
-    fn set_is_prepared(&self, prepared: bool) {
-        if self.is_prepared() == prepared {
-            return;
+            true
+        } else {
+            false
         }
-
-        self.imp().prepared.set(prepared);
-    }
-
-    fn is_prepared(&self) -> bool {
-        self.imp().prepared.get()
     }
 
     pub fn room_list(&self) -> &RoomList {
@@ -683,9 +706,9 @@ impl Session {
     pub fn client(&self) -> Client {
         self.imp()
             .client
-            .borrow()
-            .clone()
+            .get()
             .expect("The session isn't ready")
+            .clone()
     }
 
     pub fn is_offline(&self) -> bool {
@@ -728,39 +751,17 @@ impl Session {
         self.notify("offline");
     }
 
-    /// Connects the prepared signals to the function f given in input
-    pub fn connect_prepared<F: Fn(&Self, Option<String>) + 'static>(
-        &self,
-        f: F,
-    ) -> glib::SignalHandlerId {
-        self.connect_local("prepared", true, move |values| {
-            let obj = values[0].get::<Self>().unwrap();
-            let err = values[1].get::<Option<String>>().unwrap();
-
-            f(&obj, err);
-
-            None
-        })
+    pub fn state(&self) -> State {
+        self.imp().state.get()
     }
 
-    pub fn connect_logged_out<F: Fn(&Self) + 'static>(&self, f: F) -> glib::SignalHandlerId {
-        self.connect_local("logged-out", true, move |values| {
-            let obj = values[0].get::<Self>().unwrap();
+    fn set_state(&self, state: State) {
+        if self.state() == state {
+            return;
+        }
 
-            f(&obj);
-
-            None
-        })
-    }
-
-    pub fn connect_ready<F: Fn(&Self) + 'static>(&self, f: F) -> glib::SignalHandlerId {
-        self.connect_local("ready", true, move |values| {
-            let obj = values[0].get::<Self>().unwrap();
-
-            f(&obj);
-
-            None
-        })
+        self.imp().state.set(state);
+        self.notify("state");
     }
 
     fn handle_sync_response(&self, response: Result<SyncResponse, matrix_sdk::Error>) {
@@ -771,8 +772,11 @@ impl Session {
                 self.verification_list()
                     .handle_response_to_device(response.to_device);
 
-                if !self.is_ready() {
-                    self.mark_ready();
+                if !self.imp().was_synced.get() {
+                    self.imp().was_synced.set(true);
+                    spawn!(clone!(@weak self as obj => async move {
+                        obj.show_content().await;
+                    }));
                 }
             }
             Err(error) => {
@@ -781,7 +785,9 @@ impl Session {
                 ))) = error
                 {
                     if let ErrorKind::UnknownToken { soft_logout: _ } = error.kind {
-                        self.handle_logged_out();
+                        spawn!(clone!(@strong self as obj => async move {
+                          obj.cleanup_session().await;
+                        }));
                     }
                 }
                 error!("Failed to perform sync: {:?}", error);
@@ -804,96 +810,81 @@ impl Session {
         window.show();
     }
 
-    pub async fn logout(&self, cleanup: bool) {
-        let stack = &self.imp().stack;
-        self.emit_by_name::<()>("logged-out", &[]);
+    fn logout(&self) {
+        spawn!(clone!(@strong self as obj => async move {
+            obj.cleanup_token(obj.client()).await;
+            obj.cleanup_session().await;
+        }));
+    }
 
+    async fn cleanup_session(&self) {
+        let priv_ = self.imp();
         debug!("The session is about to be logged out");
 
         // First stop the verification in progress
-        if let Some(session_verification) = stack.child_by_name("session-verification") {
-            stack.remove(&session_verification);
+        if let Some(session_verification) = priv_.stack.child_by_name("session-verification") {
+            priv_.stack.remove(&session_verification);
         }
 
-        let client = self.client();
+        if let Some(handle) = priv_.sync_tokio_handle.take() {
+            handle.abort();
+        }
+
+        let info = priv_.info.get().expect("Session info needs to be set");
+        if let Err(error) = secret::remove_session(info).await {
+            error!(
+                "Failed to remove credentials from SecretService after logout: {}",
+                error.to_user_facing()
+            );
+        }
+
+        self.cleanup_files(&info.path);
+
+        debug!("Finished loggoing out the session");
+    }
+
+    fn cleanup_files<P: AsRef<Path>>(&self, path: P) {
+        if let Err(error) = fs::remove_dir_all(path) {
+            error!("Failed to remove database after logout: {}", error);
+            toast!(self, gettext("Failed to remove database during logout"));
+        }
+        self.set_state(State::Cleaned);
+    }
+
+    async fn cleanup_token(&self, client: Client) {
         let handle = spawn_tokio!(async move {
             let request = logout::v3::Request::new();
             client.send(request, None).await
         });
 
-        match handle.await.unwrap() {
-            Ok(_) => {
-                if cleanup {
-                    self.cleanup_session().await
-                }
-            }
-            Err(error) => {
-                error!("Couldn’t logout the session {}", error);
-                toast!(self, gettext("Failed to logout the session."));
-            }
+        if let Err(error) = handle.await.unwrap() {
+            error!("Couldn’t logout the session {}", error);
+            toast!(self, gettext("Failed to logout the session."));
         }
-    }
 
-    /// Handle that the session has been logged out.
-    ///
-    /// This should only be called if the session has been logged out without
-    /// `Session::logout`.
-    pub fn handle_logged_out(&self) {
-        self.emit_by_name::<()>("logged-out", &[]);
-        spawn!(
-            glib::PRIORITY_LOW,
-            clone!(@strong self as obj => async move {
-                obj.cleanup_session().await;
-            })
-        );
+        self.set_state(State::LoggedOut)
     }
 
     pub fn handle_paste_action(&self) {
         self.imp().content.handle_paste_action();
     }
 
-    async fn cleanup_session(&self) {
-        let priv_ = self.imp();
-        let info = priv_.info.get().unwrap();
-
-        priv_.is_ready.set(false);
-
-        if let Some(handle) = priv_.sync_tokio_handle.take() {
-            handle.abort();
-        }
-
-        if let Err(error) = secret::remove_session(info).await {
-            error!(
-                "Failed to remove credentials from SecretService after logout: {}",
-                error
-            );
-        }
-
-        if let Err(error) = fs::remove_dir_all(info.path.clone()) {
-            error!("Failed to remove database after logout: {}", error);
-        }
-
-        debug!("The logged out session was cleaned up");
-    }
-
     /// Show the content of the session
-    pub fn show_content(&self) {
+    pub async fn show_content(&self) {
         let priv_ = self.imp();
-        // FIXME: we should actually check if we have now the keys
-        spawn!(clone!(@weak self as obj => async move {
-            obj.has_cross_signing_keys().await;
-        }));
-        priv_.stack.set_visible_child(&*priv_.leaflet);
-        priv_.logout_on_dispose.set(false);
-        if let Some(window) = self.parent_window() {
-            window.switch_to_sessions_page();
+
+        // This wont' do anything if the keys are already available
+        if self.setup_cross_signing().await {
+            return;
         }
+
+        priv_.stack.set_visible_child(&*priv_.leaflet);
 
         if let Some(session_verificiation) = priv_.stack.child_by_name("session-verification") {
             priv_.stack.remove(&session_verificiation);
         }
 
-        self.emit_by_name::<()>("ready", &[]);
+        self.set_state(State::Content);
     }
 
     /// Show a media event

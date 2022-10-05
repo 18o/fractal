@@ -8,7 +8,10 @@ use crate::{
     account_switcher::AccountSwitcher,
     config::{APP_ID, PROFILE},
     secret::{self, SecretError},
-    spawn, Application, ErrorPage, Greeter, Login, Session,
+    session::State as SessionState,
+    spawn, toast,
+    user_facing_error::UserFacingError,
+    Application, ErrorPage, Greeter, Login, Session,
 };
 
 mod imp {
@@ -176,9 +179,20 @@ impl Window {
         // We need to grab the focus so that keyboard shortcuts work
         session.grab_focus();
 
-        session.connect_logged_out(clone!(@weak self as obj => move |session| {
-            obj.remove_session(session)
-        }));
+        session.connect_notify_local(
+            Some("state"),
+            clone!(@weak self as obj => move |session, _| {
+                if session.state() >= SessionState::LoggedOut {
+                    obj.remove_session(session);
+                } else if session.state() >= SessionState::LoggedIn {
+                    obj.switch_to_sessions_page();
+                }
+            }),
+        );
+
+        if session.state() >= SessionState::LoggedIn {
+            self.switch_to_sessions_page();
+        }
 
         if !prev_has_sessions {
             self.notify("has-sessions");
@@ -214,13 +228,13 @@ impl Window {
                         }
 
                         let session = Session::new();
-                        spawn!(
-                            glib::PRIORITY_DEFAULT_IDLE,
-                            clone!(@weak session => async move {
-                                session.login_with_previous_session(stored_session).await;
-                            })
-                        );
-                        self.add_session(&session);
+                        if let Err(error) =
+                            session.login_with_previous_session(stored_session).await
+                        {
+                            toast!(self, error.to_user_facing());
+                        } else {
+                            self.add_session(&session);
+                        }
                     }
                 }
 
@@ -244,7 +258,7 @@ impl Window {
                     &format!(
                         "{}\n\n{}",
                         gettext("Failed to restore previous sessions"),
-                        error,
+                        error.clone().to_user_facing(),
                     ),
                     error,
                 );
@@ -322,7 +336,7 @@ impl Window {
         priv_.main_stack.set_visible_child(&*priv_.greeter);
     }
 
-    pub fn switch_to_error_page(&self, message: &str, error: SecretError) {
+    fn switch_to_error_page(&self, message: &str, error: SecretError) {
         let priv_ = self.imp();
         priv_.error_page.display_secret_error(message, error);
         priv_.main_stack.set_visible_child(&*priv_.error_page);

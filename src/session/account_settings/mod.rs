@@ -12,7 +12,7 @@ use devices_page::DevicesPage;
 use security_page::SecurityPage;
 use user_page::UserPage;
 
-use super::Session;
+use super::{Session, State as SessionState};
 
 mod imp {
     use std::cell::RefCell;
@@ -144,9 +144,12 @@ impl AccountSettings {
         if let Some(session) = &session {
             priv_
                 .session_handler
-                .replace(Some(session.connect_logged_out(
-                    clone!(@weak self as obj => move |_| {
-                        obj.close();
+                .replace(Some(session.connect_notify_local(
+                    Some("state"),
+                    clone!(@weak self as obj => move |session, _| {
+                        if session.state() >= SessionState::LoggedOut {
+                            obj.close();
+                        }
                     }),
                 )));
         }

@@ -504,33 +504,43 @@ impl Login {
 
         self.freeze();
 
-        let session = Session::new();
-        self.set_handler_for_prepared_session(&session);
-
         spawn!(
             glib::PRIORITY_DEFAULT_IDLE,
-            clone!(@weak session => async move {
-                session.login_with_password(homeserver, username, password, autodiscovery).await;
+            clone!(@weak self as obj => async move {
+                let session = Session::new();
+                if let Err(error) = session.login_with_password(homeserver, username, password, autodiscovery).await {
+                    toast!(obj, error.to_user_facing());
+                    obj.unfreeze();
+                    obj.parent_window().switch_to_login_page();
+                } else {
+                    obj.clean();
+                    debug!("A new session was prepared");
+                    obj.emit_by_name::<()>("new-session", &[&session]);
+                }
             })
         );
-        priv_.current_session.replace(Some(session));
     }
 
     fn login_with_sso(&self, idp_id: Option<String>) {
-        let priv_ = imp::Login::from_instance(self);
         let homeserver = self.homeserver().unwrap();
         self.set_visible_child("sso_message_page");
 
-        let session = Session::new();
-        self.set_handler_for_prepared_session(&session);
         spawn!(
             glib::PRIORITY_DEFAULT_IDLE,
-            clone!(@weak session, @weak self as s => async move {
-                session.login_with_sso(homeserver, idp_id).await;
-                s.set_visible_child("homeserver");
+            clone!(@weak self as obj => async move {
+                let session = Session::new();
+                if let Err(error) = session.login_with_sso(homeserver, idp_id).await {
+                    toast!(obj, error.to_user_facing());
+                    obj.unfreeze();
+                    obj.parent_window().switch_to_login_page();
+                } else {
+                    obj.clean();
+                    debug!("A new session was prepared");
+                    obj.set_visible_child("homeserver");
+                    obj.emit_by_name::<()>("new-session", &[&session]);
+                }
             })
         );
-        priv_.current_session.replace(Some(session));
     }
 
     pub fn clean(&self) {
@@ -542,7 +552,6 @@ impl Login {
         priv_.homeserver.take();
         priv_.main_stack.set_visible_child_name("homeserver");
         self.unfreeze();
-        self.drop_session_reference();
     }
 
     fn freeze(&self) {
@@ -575,22 +584,6 @@ impl Login {
         })
     }
 
-    fn drop_session_reference(&self) {
-        let priv_ = self.imp();
-
-        if let Some(session) = priv_.current_session.take() {
-            if let Some(id) = priv_.prepared_source_id.take() {
-                session.disconnect(id);
-            }
-            if let Some(id) = priv_.logged_out_source_id.take() {
-                session.disconnect(id);
-            }
-            if let Some(id) = priv_.ready_source_id.take() {
-                session.disconnect(id);
-            }
-        }
-    }
-
     pub fn default_widget(&self) -> gtk::Widget {
         self.imp().next_button.get().upcast()
     }
@@ -607,42 +600,6 @@ impl Login {
             }
             _ => {}
         }
-    }
-
-    fn set_handler_for_prepared_session(&self, session: &Session) {
-        let priv_ = self.imp();
-        priv_
-            .prepared_source_id
-            .replace(Some(session.connect_prepared(
-                clone!(@weak self as login => move |session, error| {
-                    match error {
-                        Some(e) => {
-                            toast!(login, e);
-                            login.unfreeze();
-                        },
-                        None => {
-                            debug!("A new session was prepared");
-                            login.emit_by_name::<()>("new-session", &[&session]);
-                        }
-                    }
-                }),
-            )));
-
-        priv_.ready_source_id.replace(Some(session.connect_ready(
-            clone!(@weak self as login => move |_| {
-                login.clean();
-            }),
-        )));
-
-        priv_
-            .logged_out_source_id
-            .replace(Some(session.connect_logged_out(
-                clone!(@weak self as login => move |_| {
-                    login.parent_window().switch_to_login_page();
-                    login.drop_session_reference();
-                    login.unfreeze();
-                }),
-            )));
     }
 
     fn parent_window(&self) -> crate::Window {
