@@ -42,10 +42,10 @@ flatpak remote-add --user --if-not-exists gnome-nightly https://nightly.gnome.or
 flatpak install --user gnome-nightly org.gnome.Sdk//master org.gnome.Platform//master
 
 # Install the required rust-stable extension from Flathub
-flatpak install --user flathub org.freedesktop.Sdk.Extension.rust-stable//24.08
+flatpak install --user flathub org.freedesktop.Sdk.Extension.rust-stable//25.08beta
 
 # Install the required llvm extension from Flathub
-flatpak install --user flathub org.freedesktop.Sdk.Extension.llvm18//24.08
+flatpak install --user flathub org.freedesktop.Sdk.Extension.llvm20//25.08beta
 ```
 
 If you are building the flatpak manually you will also need flatpak-builder on your system, or the
@@ -100,7 +100,7 @@ GNOME Builder can export a flatpak of the app after it has been successfully bui
 Fractal can then be installed with:
 
 ```sh
-flatpak install --user --bundle path/to/org.gnome.Fractal.Devel.flatpak 
+flatpak install --user --bundle path/to/org.gnome.Fractal.Devel.flatpak
 ```
 
 Alternatively, it can be built and installed with flatpak-builder:
@@ -143,7 +143,7 @@ submissions and is once again checked by our CI.
 
 Please follow the [GNOME commit message guidelines](https://handbook.gnome.org/development/commit-messages.html).
 We enforce the use of a tag as a prefix for the summary line. It should be the area of the app that
-is changed. 
+is changed.
 
 ## Merge Request
 

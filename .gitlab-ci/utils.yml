@@ -14,3 +14,21 @@
     - mv $TMP_FILE ${MANIFEST_PATH}
     # Use meson's build-env profile.
     - sed -i "s|-Dprofile=development|-Dprofile=build-env|g" ${MANIFEST_PATH}
+
+# Update the Flatpak manifest to use the latest stable GNOME runtime and use the corresponding
+# container image.
+#
+# To get a list of available GNOME and LLVM versions, see:
+# https://gitlab.gnome.org/GNOME/gnome-runtime-images/-/blob/master/.gitlab-ci.yml
+.stable_runtime:
+  image: 'quay.io/gnome_infrastructure/gnome-runtime-images:gnome-${GNOME_STABLE_VERSION}'
+  variables:
+    GNOME_STABLE_VERSION: "48"
+    FREEDESKTOP_RUNTIME_BRANCH: "24.08"
+    LLVM_NIGHTLY_VERSION: "20"
+    LLVM_STABLE_VERSION: "20"
+  before_script:
+    # We want to use the latest stable GNOME runtime instead of the nightly runtime.
+    - sed -i "s|master|${GNOME_STABLE_VERSION}|g" ${MANIFEST_PATH}
+    # We want to use the latest LLVM extension for the stable runtime.
+    - sed -i "s|llvm${LLVM_NIGHTLY_VERSION}|llvm${LLVM_STABLE_VERSION}|g" ${MANIFEST_PATH}

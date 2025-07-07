@@ -5,7 +5,7 @@
     "sdk": "org.gnome.Sdk",
     "sdk-extensions": [
         "org.freedesktop.Sdk.Extension.rust-stable",
-        "org.freedesktop.Sdk.Extension.llvm18"
+        "org.freedesktop.Sdk.Extension.llvm20"
     ],
     "command": "fractal",
     "finish-args": [
@@ -20,8 +20,8 @@
         "--env=RUST_BACKTRACE=1"
     ],
     "build-options": {
-        "append-ld-library-path": "/usr/lib/sdk/llvm18/lib",
-        "append-path": "/usr/lib/sdk/llvm18/bin:/usr/lib/sdk/rust-stable/bin",
+        "append-ld-library-path": "/usr/lib/sdk/llvm20/lib",
+        "append-path": "/usr/lib/sdk/llvm20/bin:/usr/lib/sdk/rust-stable/bin",
         "env": {
             "RUSTFLAGS": "-C force-frame-pointers=yes",
             "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER": "clang",

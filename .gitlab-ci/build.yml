@@ -3,6 +3,7 @@
 include:
   - project: "GNOME/citemplates"
     file: "flatpak/flatpak_ci_initiative.yml"
+  - local: '.gitlab-ci/utils.yml'
 
 variables:
   RUNTIME_REPO: "https://nightly.gnome.org/gnome-nightly.flatpakrepo"
@@ -30,34 +31,23 @@ build@aarch64:
 
 # Test builds with the stable runtime to make sure that the Flatpak will build on Flathub.
 # Should be run manually before tagging a new release.
-#
-# To get a list of available GNOME and LLVM versions, see:
-# https://gitlab.gnome.org/GNOME/gnome-runtime-images/-/blob/master/.gitlab-ci.yml
-.build-stable:
-  image: 'quay.io/gnome_infrastructure/gnome-runtime-images:gnome-${GNOME_STABLE_VERSION}'
+.build_stable:
+  extends:
+    - .stable_runtime
   variables:
-    GNOME_STABLE_VERSION: "48"
-    LLVM_NIGHTLY_VERSION: "18"
-    LLVM_STABLE_VERSION: "18"
     RUNTIME_REPO: "https://flathub.org/repo/flathub.flatpakrepo"
     RUN_TESTS: 0
-  before_script:
-    # We want to use the latest stable GNOME runtime instead of the nightly runtime.
-    - sed -i "s|master|${GNOME_STABLE_VERSION}|g" ${MANIFEST_PATH}
-    # We want to use the latest LLVM extension for the stable runtime.
-    - sed -i "s|llvm${LLVM_NIGHTLY_VERSION}|llvm${LLVM_STABLE_VERSION}|g" ${MANIFEST_PATH}
-
 
 build-stable@x86_64:
   extends:
     - .flatpak@x86_64
-    - .build-stable
+    - .build_stable
   stage: build
   when: manual
 
 build-stable@aarch64:
   extends:
     - .flatpak@aarch64
-    - .build-stable
+    - .build_stable
   stage: build
   when: manual
