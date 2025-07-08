@@ -10,6 +10,7 @@ use ruma::{
     },
     assign,
     directory::PublicRoomsChunk,
+    room::RoomSummary,
     uint,
 };
 use tracing::{debug, warn};
@@ -309,7 +310,7 @@ mod imp {
             let uri = self.uri();
             let client = session.client();
 
-            let request = get_summary::msc3266::Request::new(uri.id.clone(), uri.via.clone());
+            let request = get_summary::v1::Request::new(uri.id.clone(), uri.via.clone());
             let handle = spawn_tokio!(async move { client.send(request).await });
 
             let Some(result) = self.request_abort_handle.await_task(handle).await else {
@@ -319,7 +320,7 @@ mod imp {
 
             match result {
                 Ok(response) => {
-                    self.set_data(response.into());
+                    self.set_data(response.summary.into());
                     true
                 }
                 Err(error) => {
@@ -495,8 +496,8 @@ pub(crate) struct RemoteRoomData {
     joined_members_count: u32,
 }
 
-impl From<get_summary::msc3266::Response> for RemoteRoomData {
-    fn from(value: get_summary::msc3266::Response) -> Self {
+impl From<RoomSummary> for RemoteRoomData {
+    fn from(value: RoomSummary) -> Self {
         Self {
             room_id: value.room_id,
             canonical_alias: value.canonical_alias,

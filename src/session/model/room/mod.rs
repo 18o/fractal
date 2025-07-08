@@ -21,13 +21,10 @@ use ruma::{
         error::{ErrorKind, RetryAfter},
         receipt::create_receipt::v3::ReceiptType as ApiReceiptType,
     },
-    events::{
-        receipt::ReceiptThread,
-        room::{
-            guest_access::GuestAccess,
-            history_visibility::HistoryVisibility,
-            member::{MembershipState, RoomMemberEventContent, SyncRoomMemberEvent},
-        },
+    events::room::{
+        guest_access::GuestAccess,
+        history_visibility::HistoryVisibility,
+        member::{MembershipState, RoomMemberEventContent, SyncRoomMemberEvent},
     },
 };
 use serde::Deserialize;
@@ -1823,7 +1820,7 @@ impl Room {
                 ReceiptPosition::End => matrix_timeline.mark_as_read(receipt_type).await,
                 ReceiptPosition::Event(event_id) => {
                     matrix_timeline
-                        .send_single_receipt(receipt_type, ReceiptThread::Unthreaded, event_id)
+                        .send_single_receipt(receipt_type, event_id)
                         .await
                 }
             }

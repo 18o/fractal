@@ -4,8 +4,8 @@
     "sources": [
         {
             "type": "archive",
-            "url": "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.72/cargo-nextest-0.9.72-x86_64-unknown-linux-gnu.tar.gz",
-            "sha256": "e6f66397d3ba9a150b5debbc414a9ad1f87e4707da1f989c0681444ba5d15571",
+            "url": "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.100/cargo-nextest-0.9.100-x86_64-unknown-linux-gnu.tar.gz",
+            "sha256": "de8843f9d4cd72ba7ff3995679536b8a5638ebc8f94848cb988c7549d9dc4e7d",
             "dest": "cargo-nextest",
             "strip-components": 0
         }
