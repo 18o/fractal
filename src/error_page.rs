@@ -2,7 +2,7 @@ use adw::{prelude::*, subclass::prelude::*};
 use gettextrs::gettext;
 use gtk::glib;
 
-use crate::{APP_ID, toast};
+use crate::toast;
 
 /// The possible error subpages.
 #[derive(Debug, Clone, Copy, strum::AsRefStr)]

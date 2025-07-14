@@ -6,11 +6,19 @@ use geo_uri::GeoUri;
 #[cfg(target_os = "linux")]
 mod linux;
 
+#[cfg(target_os = "macos")]
+mod macos;
+
 cfg_if::cfg_if! {
     if #[cfg(target_os = "linux")] {
         /// The secret API.
         pub(crate) type Location = linux::LinuxLocation;
-    } else {
+    }
+    else if #[cfg(target_os = "macos")] {
+        pub(crate) type Location = macos::MacOSLocation;
+    }
+
+    else {
         /// The secret API.
         pub(crate) type Location = unimplemented::UnimplementedLocation;
     }
@@ -29,7 +37,7 @@ pub(crate) trait LocationExt {
 }
 
 /// The fallback location API, used on platforms where it is unimplemented.
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 mod unimplemented {
     use super::*;
 

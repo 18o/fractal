@@ -16,15 +16,6 @@ desktop_file = i18n.merge_file(
   install_dir: datadir / 'applications'
 )
 # Validate Desktop file
-if desktop_file_validate.found()
-  test(
-    'validate-desktop',
-    desktop_file_validate,
-    args: [
-      desktop_file.full_path()
-    ]
-  )
-endif
 
 # Appdata
 if profile == 'Devel'

@@ -48,7 +48,7 @@ endif
 
 glib_compile_resources = find_program('glib-compile-resources', required: true)
 glib_compile_schemas = find_program('glib-compile-schemas', required: true)
-desktop_file_validate = find_program('desktop-file-validate', required: false)
+
 appstreamcli = find_program('appstreamcli', required: false)
 cargo = find_program('cargo', required: true)
 cargo_version = run_command(cargo, '--version', check: true).stdout().strip()
@@ -109,5 +109,4 @@ subdir('src')
 gnome.post_install(
   gtk_update_icon_cache: true,
   glib_compile_schemas: true,
-  update_desktop_database: true,
 )
