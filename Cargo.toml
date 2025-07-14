@@ -60,7 +60,7 @@ zeroize = "1"
 
 # gtk-rs project and dependents. These usually need to be updated together.
 adw = { package = "libadwaita", version = "0.7", features = ["v1_7"] }
-glycin = { version = "2", default-features = false, features = ["tokio", "gdk4"] }
+
 gst = { version = "0.23", package = "gstreamer" }
 gst_app = { version = "0.23", package = "gstreamer-app" }
 gst_pbutils = { version = "0.23", package = "gstreamer-pbutils" }
@@ -115,6 +115,19 @@ oo7 = { version = "0.4", default-features = false, features = [
     "tokio",
     "tracing",
 ] }
+glycin = { version = "2", default-features = false, features = [
+    "tokio",
+    "gdk4",
+] }
+
+
+[target.'cfg(target_os = "macos")'.dependencies]
+image = "0.25.6"
+objc2 = "0.6"
+objc2-foundation = "0.3"
+tokio-stream = "0.1"
+dirs = "6"
+serde_json = "1"
 
 [dev-dependencies]
 assert_matches2 = "0.1"

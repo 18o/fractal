@@ -1,3 +1,48 @@
+# Fractal macOS Port
+
+> **Note**: This is a fork of [gitlab.gnome.org/World/fractal](https://gitlab.gnome.org/World/fractal/) that has been ported to run natively on macOS. The port is now functional and can be built and run on macOS systems.
+
+## macOS-specific Changes
+
+This fork includes the following modifications to make Fractal work on macOS:
+
+- Replaced `glycin` image loading library with the `image` crate for cross-platform compatibility
+- Implemented macOS-specific secret storage using Keychain Services
+- Added conditional compilation for platform-specific code paths
+- Fixed library linking and resource loading issues on macOS
+
+### Building on macOS
+
+Prerequisites:
+
+- macOS 10.15 or later
+- Homebrew package manager
+- GTK4 and related dependencies
+
+```bash
+# Install dependencies
+brew install gtk4 glib gsettings-desktop-schemas meson ninja gtksourceview5 gstreamer
+
+# Set up environment
+export DYLD_LIBRARY_PATH="/opt/homebrew/lib:$DYLD_LIBRARY_PATH"
+export GSETTINGS_SCHEMA_DIR="/opt/homebrew/share/glib-2.0/schemas"
+export XDG_DATA_DIRS="/opt/homebrew/share:$XDG_DATA_DIRS"
+
+mkdir /opt/homebrew/share/fractal
+cp src/ui-resources.gresource /opt/homebrew/share/fractal/
+cp data/resources/resources.gresource  /opt/homebrew/share/fractal/
+
+# Build and install
+meson setup builddir -Ddisable-glycin-sandbox=true
+meson compile -C builddir
+sudo meson install -C builddir
+
+# Run
+fractal
+```
+
+---
+
 [![Our chat room](https://img.shields.io/matrix/fractal-gtk:matrix.org?color=blue&label=%23fractal%3Agnome.org&logo=matrix)](https://matrix.to/#/#fractal:gnome.org)
 [![Our Gitlab project](https://img.shields.io/badge/gitlab.gnome.org%2F-World%2FFractal-green?logo=gitlab)](https://gitlab.gnome.org/World/fractal/)
 [![Our documentation](https://img.shields.io/badge/%F0%9F%95%AE-Docs-B7410E?logo=rust)](https://world.pages.gitlab.gnome.org/fractal/)
@@ -17,12 +62,12 @@ collaboration in large groups, such as free software projects, and will fit all 
 
 Highlights:
 
-* Find rooms to discuss your favorite topics, or talk privately to people, securely thanks to end-to-end encryption
-* Send rich formatted messages, files, or your current location
-* Reply to specific messages, react with emoji, edit or remove messages
-* View images, and play audio and video directly in the conversation
-* See who has read messages, and who is typing
-* Log into multiple accounts at once (with Single-Sign On support)
+- Find rooms to discuss your favorite topics, or talk privately to people, securely thanks to end-to-end encryption
+- Send rich formatted messages, files, or your current location
+- Reply to specific messages, react with emoji, edit or remove messages
+- View images, and play audio and video directly in the conversation
+- See who has read messages, and who is typing
+- Log into multiple accounts at once (with Single-Sign On support)
 
 ## Contents
 
@@ -148,17 +193,17 @@ flatpak install --user gnome-nightly org.gnome.Fractal.Devel
 On top of the dependencies required at build time and checked by Meson, Fractal depends on the
 following dependencies at runtime:
 
-* xdg-desktop-portal and its backends: some functionalities are dependant on the following portals,
+- xdg-desktop-portal and its backends: some functionalities are dependant on the following portals,
   and a permission will be asked when necessary, but Fractal should work without them:
-  * Secret: this portal or a Secret Service is required, see [storing secrets](#storing-secrets).
-  * Camera: scan QR codes during verification.
-  * Location: send the user’s location in a conversation.
-  * Settings: get the 12h/24h time format system preference.
-* GStreamer plugins:
-  * gst-plugin-gtk4 (gstgtk4): required to preview videos in the timeline and to present the output
+  - Secret: this portal or a Secret Service is required, see [storing secrets](#storing-secrets).
+  - Camera: scan QR codes during verification.
+  - Location: send the user’s location in a conversation.
+  - Settings: get the 12h/24h time format system preference.
+- GStreamer plugins:
+  - gst-plugin-gtk4 (gstgtk4): required to preview videos in the timeline and to present the output
     of the camera.
-  * libgstpipewire with the `pipewiredeviceprovider`: used to list and access the cameras.
-* glycin: all images are loaded with this library so loaders for the different image formats need to
+  - libgstpipewire with the `pipewiredeviceprovider`: used to list and access the cameras.
+- glycin: all images are loaded with this library so loaders for the different image formats need to
   be installed.
 
 #### Storing secrets
@@ -217,12 +262,12 @@ They are translated on [Element’s translation platform](https://translate.elem
 
 ## Frequently Asked Questions
 
-* Does Fractal have encryption support?
+- Does Fractal have encryption support?
 
 **Yes**, since Fractal 5, encryption is supported using Cross-Signing. See
 <https://gitlab.gnome.org/World/fractal/-/issues/717> for more info on the state of encryption.
 
-* Can I run Fractal with the window closed?
+- Can I run Fractal with the window closed?
 
 Currently Fractal does not support this. Fractal is a GNOME application, and accordingly adheres to
 the GNOME guidelines and paradigms. This will be revisited if or when GNOME gets a proper paradigm

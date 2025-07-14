@@ -18,6 +18,8 @@ use zeroize::Zeroizing;
 mod file;
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "macos")]
+mod macos;
 
 use self::file::SecretFile;
 use crate::{
@@ -35,7 +37,10 @@ cfg_if::cfg_if! {
     if #[cfg(target_os = "linux")] {
         /// The secret API.
         pub(crate) type Secret = linux::LinuxSecret;
-    } else {
+    } else if #[cfg(target_os = "macos")] {
+        /// The secret API.
+        pub(crate) type Secret = macos::MacOSSecret;
+    }  else {
         /// The secret API.
         pub(crate) type Secret = unimplemented::UnimplementedSecret;
     }
@@ -55,7 +60,7 @@ pub(crate) trait SecretExt {
 }
 
 /// The fallback `Secret` API, to use on platforms where it is unimplemented.
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 mod unimplemented {
     use super::*;
 

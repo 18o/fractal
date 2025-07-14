@@ -521,7 +521,10 @@ impl FileRequestData {
 }
 
 impl IntoFuture for FileRequestData {
+    #[cfg(target_os = "linux")]
     type Output = Result<Image, glycin::ErrorCtx>;
+    #[cfg(target_os = "macos")]
+    type Output = Result<Image, ImageError>;
     type IntoFuture = BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {

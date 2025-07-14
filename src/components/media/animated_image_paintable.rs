@@ -1,7 +1,9 @@
-use std::sync::Arc;
-
+#[cfg(target_os = "macos")]
+use crate::utils::media::image::{Frame, Image, ImageData};
+#[cfg(target_os = "linux")]
 use glycin::{Frame, Image};
 use gtk::{gdk, glib, glib::clone, graphene, prelude::*, subclass::prelude::*};
+use std::sync::Arc;
 use tracing::error;
 
 use crate::{
@@ -20,7 +22,10 @@ mod imp {
     #[derive(Default)]
     pub struct AnimatedImagePaintable {
         /// The image loader.
+        #[cfg(target_os = "linux")]
         image_loader: OnceCell<Arc<Image<'static>>>,
+        #[cfg(target_os = "macos")]
+        image_data: OnceCell<Arc<ImageData>>,
         /// The file of the image.
         file: OnceCell<File>,
         /// The current frame that is displayed.
@@ -33,6 +38,9 @@ mod imp {
         ///
         /// When the count is 0, the animation is paused.
         animation_ref: OnceCell<CountedRef>,
+        /// Current frame index for macOS animation
+        #[cfg(target_os = "macos")]
+        current_frame_index: RefCell<usize>,
     }
 
     #[glib::object_subclass]
@@ -46,21 +54,45 @@ mod imp {
 
     impl PaintableImpl for AnimatedImagePaintable {
         fn intrinsic_height(&self) -> i32 {
-            self.current_frame
-                .borrow()
-                .as_ref()
-                .map_or_else(|| self.image_loader().info().height, |f| f.height())
-                .try_into()
-                .unwrap_or(i32::MAX)
+            #[cfg(target_os = "linux")]
+            {
+                self.current_frame
+                    .borrow()
+                    .as_ref()
+                    .map_or_else(|| self.image_loader().info().height, |f| f.height())
+                    .try_into()
+                    .unwrap_or(i32::MAX)
+            }
+
+            #[cfg(target_os = "macos")]
+            {
+                self.current_frame
+                    .borrow()
+                    .as_ref()
+                    .and_then(|f| f.dimensions())
+                    .map_or(100, |d| d.height as i32)
+            }
         }
 
         fn intrinsic_width(&self) -> i32 {
-            self.current_frame
-                .borrow()
-                .as_ref()
-                .map_or_else(|| self.image_loader().info().width, |f| f.width())
-                .try_into()
-                .unwrap_or(i32::MAX)
+            #[cfg(target_os = "linux")]
+            {
+                self.current_frame
+                    .borrow()
+                    .as_ref()
+                    .map_or_else(|| self.image_loader().info().width, |f| f.width())
+                    .try_into()
+                    .unwrap_or(i32::MAX)
+            }
+
+            #[cfg(target_os = "macos")]
+            {
+                self.current_frame
+                    .borrow()
+                    .as_ref()
+                    .and_then(|f| f.dimensions())
+                    .map_or(100, |d| d.width as i32) // 默认宽度
+            }
         }
 
         fn snapshot(&self, snapshot: &gdk::Snapshot, width: f64, height: f64) {
@@ -95,6 +127,7 @@ mod imp {
 
     impl AnimatedImagePaintable {
         /// The image loader.
+        #[cfg(target_os = "linux")]
         fn image_loader(&self) -> &Arc<Image<'static>> {
             self.image_loader
                 .get()
@@ -102,6 +135,7 @@ mod imp {
         }
 
         /// Initialize the image.
+        #[cfg(target_os = "linux")]
         pub(super) fn init(
             &self,
             file: File,
@@ -117,17 +151,50 @@ mod imp {
             self.update_animation();
         }
 
+        #[cfg(target_os = "macos")]
+        pub(super) fn init(&self, file: File, image_data: Arc<ImageData>, first_frame: Arc<Frame>) {
+            self.file.set(file).expect("file is uninitialized");
+            self.image_data
+                .set(image_data)
+                .expect("image data is uninitialized");
+            self.current_frame.replace(Some(first_frame));
+            self.current_frame_index.replace(0);
+
+            self.update_animation();
+        }
+
         /// Show the next frame of the animation.
         fn show_next_frame(&self) {
             // Drop the timeout source ID so we know we are not waiting for it.
             self.timeout_source_id.take();
 
-            let Some(next_frame) = self.next_frame.take() else {
-                // Wait for the next frame to be loaded.
-                return;
-            };
+            #[cfg(target_os = "linux")]
+            {
+                let Some(next_frame) = self.next_frame.take() else {
+                    // Wait for the next frame to be loaded.
+                    return;
+                };
 
-            self.current_frame.replace(Some(next_frame));
+                self.current_frame.replace(Some(next_frame));
+            }
+
+            #[cfg(target_os = "macos")]
+            {
+                if let Some(image_data) = self.image_data.get() {
+                    if let ImageData::Animated { frames, .. } = image_data.as_ref() {
+                        let mut index = self.current_frame_index.borrow_mut();
+                        *index = (*index + 1) % frames.len();
+
+                        if let Some(frame_data) = frames.get(*index) {
+                            let mut frame = Frame::new_from_dynamic_image(frame_data.image.clone());
+                            if let Frame::Image { delay, .. } = &mut frame {
+                                *delay = frame_data.delay;
+                            }
+                            self.current_frame.replace(Some(Arc::new(frame)));
+                        }
+                    }
+                }
+            }
 
             // Invalidate the contents so that the new frame will be rendered.
             self.obj().invalidate_contents();
@@ -188,15 +255,18 @@ mod imp {
             );
             self.timeout_source_id.replace(Some(source_id));
 
-            spawn!(clone!(
-                #[weak(rename_to = imp)]
-                self,
-                async move {
-                    imp.load_next_frame_inner().await;
-                }
-            ));
+            #[cfg(target_os = "linux")]
+            {
+                spawn!(clone!(
+                    #[weak(rename_to = imp)]
+                    self,
+                    async move {
+                        imp.load_next_frame_inner().await;
+                    }
+                ));
+            }
         }
-
+        #[cfg(target_os = "linux")]
         async fn load_next_frame_inner(&self) {
             let image = self.image_loader().clone();
 
@@ -231,6 +301,7 @@ glib::wrapper! {
 impl AnimatedImagePaintable {
     /// Construct an `AnimatedImagePaintable` with the given loader and first
     /// frame.
+    #[cfg(target_os = "linux")]
     pub(crate) fn new(
         file: File,
         image_loader: Arc<Image<'static>>,
@@ -240,6 +311,13 @@ impl AnimatedImagePaintable {
 
         obj.imp().init(file, image_loader, first_frame);
 
+        obj
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn new(file: File, image_data: Arc<ImageData>, first_frame: Arc<Frame>) -> Self {
+        let obj = glib::Object::new::<Self>();
+        obj.imp().init(file, image_data, first_frame);
         obj
     }
 
