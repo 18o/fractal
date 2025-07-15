@@ -8,7 +8,10 @@ use tracing::error;
 
 use super::{MemberPowerLevel, PermissionsSelectMemberRow, PrivilegedMembers};
 use crate::{
-    components::{PillSearchEntry, PowerLevelSelectionComboBox},
+    components::{
+        PillSearchEntry, PowerLevelSelectionComboBox, confirm_mute_room_member_dialog,
+        confirm_set_room_member_power_level_same_as_own_dialog,
+    },
     prelude::*,
     session::model::{Member, Permissions},
     utils::expression,
@@ -218,7 +221,7 @@ mod imp {
         /// Add the selected members to the list of members with custom power
         /// levels.
         #[template_callback]
-        fn add_members(&self) {
+        async fn add_members(&self) {
             let Some(permissions) = self.permissions.upgrade() else {
                 return;
             };
@@ -226,7 +229,29 @@ mod imp {
                 return;
             };
 
+            let obj = self.obj();
             let power_level = self.power_level_combo.selected_power_level();
+
+            let members = self
+                .selected_members
+                .borrow()
+                .values()
+                .cloned()
+                .collect::<Vec<_>>();
+
+            // Warn if users are muted.
+            let is_muted = power_level <= permissions.mute_power_level();
+            if is_muted && !confirm_mute_room_member_dialog(&members, &*obj).await {
+                return;
+            }
+
+            // Warn if power level is set at same level as own power level.
+            let is_own_power_level = power_level == permissions.own_power_level();
+            if is_own_power_level
+                && !confirm_set_room_member_power_level_same_as_own_dialog(&members, &*obj).await
+            {
+                return;
+            }
 
             let members = self
                 .selected_members
@@ -240,7 +265,6 @@ mod imp {
                 });
             privileged_members.add_members(members);
 
-            let obj = self.obj();
             let _ = obj.activate_action("navigation.pop", None);
             self.search_entry.clear();
             self.add_button.set_sensitive(false);

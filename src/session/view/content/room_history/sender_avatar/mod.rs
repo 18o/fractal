@@ -1,3 +1,5 @@
+use std::slice;
+
 use adw::{prelude::*, subclass::prelude::*};
 use gettextrs::{gettext, ngettext};
 use gtk::{CompositeTemplate, gdk, glib, glib::clone};
@@ -629,7 +631,7 @@ mod imp {
             // Warn if user is muted but was not before.
             let mute_power_level = permissions.mute_power_level();
             let mute = old_power_level > mute_power_level;
-            if mute && !confirm_mute_room_member_dialog(&sender, &*obj).await {
+            if mute && !confirm_mute_room_member_dialog(slice::from_ref(&sender), &*obj).await {
                 return;
             }
 

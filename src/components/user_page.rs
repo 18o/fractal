@@ -1,3 +1,5 @@
+use std::slice;
+
 use adw::{prelude::*, subclass::prelude::*};
 use gettextrs::{gettext, ngettext, pgettext};
 use gtk::{
@@ -461,7 +463,9 @@ mod imp {
                 let mute_power_level = permissions.mute_power_level();
                 let is_muted =
                     power_level <= mute_power_level && old_power_level > mute_power_level;
-                if is_muted && !confirm_mute_room_member_dialog(&member, &*obj).await {
+                if is_muted
+                    && !confirm_mute_room_member_dialog(slice::from_ref(&member), &*obj).await
+                {
                     self.update_room();
                     return;
                 }
@@ -469,7 +473,11 @@ mod imp {
                 // Warn if power level is set at same level as own power level.
                 let is_own_power_level = power_level == permissions.own_power_level();
                 if is_own_power_level
-                    && !confirm_set_room_member_power_level_same_as_own_dialog(&member, &*obj).await
+                    && !confirm_set_room_member_power_level_same_as_own_dialog(
+                        slice::from_ref(&member),
+                        &*obj,
+                    )
+                    .await
                 {
                     self.update_room();
                     return;

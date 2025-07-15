@@ -356,22 +356,35 @@ pub(crate) struct ConfirmRoomMemberDestructiveActionResponse {
     pub remove_events: bool,
 }
 
-/// Show a dialog to confirm muting a room member.
+/// Show a dialog to confirm muting one or several room members.
 pub(crate) async fn confirm_mute_room_member_dialog(
-    member: &Member,
+    members: &[Member],
     parent: &impl IsA<gtk::Widget>,
 ) -> bool {
-    let heading = gettext_f(
+    if members.is_empty() {
+        return false;
+    }
+
+    let first_member = members
+        .first()
+        .expect("there should be at least one member");
+    let count = members.len() as u32;
+
+    let heading = ngettext_f(
         // Translators: Do NOT translate the content between '{' and '}',
-        // this is a variable name.
+        // this is a variable name. The count cannot be zero.
         "Mute {user}?",
-        &[("user", &member.display_name())],
+        "Mute Members?",
+        count,
+        &[("user", &first_member.display_name())],
     );
-    let body = gettext_f(
+    let body = ngettext_f(
         // Translators: Do NOT translate the content between '{' and '}',
-        // this is a variable name.
-        "Are you sure you want to mute {user_id}? They will not be able to send new messages.",
-        &[("user_id", member.user_id().as_str())],
+        // this is a variable name. The count cannot be zero.
+        "Are you sure you want to mute {user_id}? They will not be able to send new messages to this room.",
+        "Are you sure you want to mute these members? They will not be able to send new messages to this room.",
+        count,
+        &[("user_id", first_member.user_id().as_str())],
     );
 
     // Ask for confirmation.
@@ -390,23 +403,36 @@ pub(crate) async fn confirm_mute_room_member_dialog(
     confirm_dialog.choose_future(parent).await == "mute"
 }
 
-/// Show a dialog to confirm setting the power level of a room member with the
-/// same value as our own.
+/// Show a dialog to confirm setting the power level of one or several room
+/// members with the same value as our own.
 pub(crate) async fn confirm_set_room_member_power_level_same_as_own_dialog(
-    member: &Member,
+    members: &[Member],
     parent: &impl IsA<gtk::Widget>,
 ) -> bool {
-    let heading = gettext_f(
+    if members.is_empty() {
+        return false;
+    }
+
+    let first_member = members
+        .first()
+        .expect("there should be at least one member");
+    let count = members.len() as u32;
+
+    let heading = ngettext_f(
         // Translators: Do NOT translate the content between '{' and '}',
-        // this is a variable name.
+        // this is a variable name. The count cannot be zero.
         "Promote {user}?",
-        &[("user", &member.display_name())],
+        "Promote Members?",
+        count,
+        &[("user", &first_member.display_name())],
     );
-    let body = gettext_f(
+    let body = ngettext_f(
         // Translators: Do NOT translate the content between '{' and '}',
-        // this is a variable name.
+        // this is a variable name. The count cannot be zero.
         "If you promote {user_id} to the same level as yours, you will not be able to demote them in the future.",
-        &[("user_id", member.user_id().as_str())],
+        "If you promote these members to the same level as yours, you will not be able to demote them in the future.",
+        count,
+        &[("user_id", first_member.user_id().as_str())],
     );
 
     // Ask for confirmation.
