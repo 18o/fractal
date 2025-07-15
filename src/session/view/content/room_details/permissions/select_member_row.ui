@@ -79,7 +79,7 @@
         <child>
           <object class="GtkCheckButton" id="check_button">
             <property name="focusable">False</property>
-            <property name="active" bind-source="RoomDetailsPermissionsSelectMemberRow" bind-property="selected" bind-flags="sync-create" />
+            <property name="active" bind-source="RoomDetailsPermissionsSelectMemberRow" bind-property="selected" bind-flags="sync-create | bidirectional" />
           </object>
         </child>
       </object>

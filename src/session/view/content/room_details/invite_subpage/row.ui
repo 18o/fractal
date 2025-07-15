@@ -71,7 +71,7 @@
               <lookup name="can-invite">
                 <lookup name="item">RoomDetailsInviteRow</lookup>
               </lookup>
-          </binding>
+            </binding>
           </object>
         </child>
         <child>
