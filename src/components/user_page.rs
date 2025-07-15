@@ -10,7 +10,7 @@ use super::{Avatar, LoadingButton, LoadingButtonRow, PowerLevelSelectionRow};
 use crate::{
     Window,
     components::{
-        RoomMemberDestructiveAction, confirm_mute_room_member_dialog,
+        RoomMemberDestructiveAction, confirm_mute_room_member_dialog, confirm_own_demotion_dialog,
         confirm_room_member_destructive_action_dialog,
         confirm_set_room_member_power_level_same_as_own_dialog,
     },
@@ -369,8 +369,8 @@ mod imp {
             self.power_level_row
                 .set_selected_power_level(member.power_level());
 
-            let can_change_power_level = !member.is_own_user()
-                && permissions.can_do_to_user(user_id, PowerLevelUserAction::ChangePowerLevel);
+            let can_change_power_level =
+                permissions.can_do_to_user(user_id, PowerLevelUserAction::ChangePowerLevel);
             self.power_level_row.set_read_only(!can_change_power_level);
 
             let can_invite = matches!(membership, Membership::Knock) && permissions.can_invite();
@@ -450,21 +450,30 @@ mod imp {
             let obj = self.obj();
             let permissions = member.room().permissions();
 
-            // Warn if user is muted but was not before.
-            let mute_power_level = permissions.mute_power_level();
-            let is_muted = power_level <= mute_power_level && old_power_level > mute_power_level;
-            if is_muted && !confirm_mute_room_member_dialog(&member, &*obj).await {
-                self.update_room();
-                return;
-            }
+            if member.is_own_user() {
+                // Warn that demoting oneself is irreversible.
+                if !confirm_own_demotion_dialog(&*obj).await {
+                    self.update_room();
+                    return;
+                }
+            } else {
+                // Warn if user is muted but was not before.
+                let mute_power_level = permissions.mute_power_level();
+                let is_muted =
+                    power_level <= mute_power_level && old_power_level > mute_power_level;
+                if is_muted && !confirm_mute_room_member_dialog(&member, &*obj).await {
+                    self.update_room();
+                    return;
+                }
 
-            // Warn if power level is set at same level as own power level.
-            let is_own_power_level = power_level == permissions.own_power_level();
-            if is_own_power_level
-                && !confirm_set_room_member_power_level_same_as_own_dialog(&member, &*obj).await
-            {
-                self.update_room();
-                return;
+                // Warn if power level is set at same level as own power level.
+                let is_own_power_level = power_level == permissions.own_power_level();
+                if is_own_power_level
+                    && !confirm_set_room_member_power_level_same_as_own_dialog(&member, &*obj).await
+                {
+                    self.update_room();
+                    return;
+                }
             }
 
             let user_id = member.user_id().clone();

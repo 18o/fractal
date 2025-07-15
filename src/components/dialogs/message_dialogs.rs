@@ -423,3 +423,25 @@ pub(crate) async fn confirm_set_room_member_power_level_same_as_own_dialog(
 
     confirm_dialog.choose_future(parent).await == "promote"
 }
+
+/// Show a dialog to confirm the demotion of our own user.
+pub(crate) async fn confirm_own_demotion_dialog(parent: &impl IsA<gtk::Widget>) -> bool {
+    let heading = gettext("Demote Yourself?");
+    let body = gettext(
+        "Are you sure you want to lower you power level? You will need to ask another member with a higher power level to undo this.",
+    );
+
+    // Ask for confirmation.
+    let confirm_dialog = adw::AlertDialog::builder()
+        .default_response("cancel")
+        .heading(heading)
+        .body(body)
+        .build();
+    confirm_dialog.add_responses(&[
+        ("cancel", &gettext("Cancel")),
+        ("demote", &gettext("Demote")),
+    ]);
+    confirm_dialog.set_response_appearance("demote", adw::ResponseAppearance::Destructive);
+
+    confirm_dialog.choose_future(parent).await == "demote"
+}
