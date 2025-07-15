@@ -1,8 +1,14 @@
+use std::slice;
+
 use gtk::{CompositeTemplate, glib, glib::clone, prelude::*, subclass::prelude::*};
 
 use super::MemberPowerLevel;
 use crate::{
-    components::{Avatar, PowerLevelSelectionPopover, RoleBadge},
+    components::{
+        Avatar, PowerLevelSelectionPopover, RoleBadge, confirm_mute_room_member_dialog,
+        confirm_own_demotion_dialog, confirm_set_room_member_power_level_same_as_own_dialog,
+    },
+    prelude::*,
     session::model::Permissions,
     utils::{BoundObject, key_bindings},
 };
@@ -82,7 +88,9 @@ mod imp {
     impl PermissionsMemberRow {
         /// Set the permissions of the room.
         fn set_permissions(&self, permissions: Permissions) {
-            self.permissions.set(permissions.clone()).unwrap();
+            self.permissions
+                .set(permissions.clone())
+                .expect("permissions should be uninitialized");
             self.popover.set_permissions(Some(permissions));
         }
 
@@ -174,13 +182,69 @@ mod imp {
 
         /// The popover's selected power level changed.
         #[template_callback]
-        fn power_level_changed(&self) {
+        async fn power_level_changed(&self) {
             let Some(member) = self.member.obj() else {
                 return;
             };
 
-            let pl = self.popover.selected_power_level();
-            member.set_power_level(pl);
+            let power_level = self.popover.selected_power_level();
+            let old_power_level = member.power_level();
+
+            if power_level == old_power_level {
+                // Nothing changed.
+                return;
+            }
+
+            let permissions = self
+                .permissions
+                .get()
+                .expect("permissions should be initialized");
+            let user = member.user();
+            let room_power_level = permissions.user_power_level(user.user_id());
+
+            if room_power_level == power_level {
+                // The power level was reset to the one in the room, nothing to check.
+                member.set_power_level(power_level);
+                return;
+            }
+
+            let obj = self.obj();
+
+            if user.is_own_user() {
+                // Warn that demoting oneself is irreversible.
+                if !confirm_own_demotion_dialog(&*obj).await {
+                    // Reset the value in the popover.
+                    self.popover.set_selected_power_level(old_power_level);
+                    return;
+                }
+            } else {
+                // Warn if user is muted but was not before.
+                let mute_power_level = permissions.mute_power_level();
+                let is_muted =
+                    power_level <= mute_power_level && old_power_level > mute_power_level;
+                if is_muted && !confirm_mute_room_member_dialog(slice::from_ref(&user), &*obj).await
+                {
+                    // Reset the value in the popover.
+                    self.popover.set_selected_power_level(old_power_level);
+                    return;
+                }
+
+                // Warn if power level is set at same level as own power level.
+                let is_own_power_level = power_level == permissions.own_power_level();
+                if is_own_power_level
+                    && !confirm_set_room_member_power_level_same_as_own_dialog(
+                        slice::from_ref(&user),
+                        &*obj,
+                    )
+                    .await
+                {
+                    // Reset the value in the popover.
+                    self.popover.set_selected_power_level(old_power_level);
+                    return;
+                }
+            }
+
+            member.set_power_level(power_level);
         }
     }
 }

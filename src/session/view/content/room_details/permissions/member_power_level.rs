@@ -77,10 +77,7 @@ mod imp {
                 return;
             };
 
-            let power_levels = permissions.power_levels();
-            let power_level = power_levels.for_user(user.user_id());
-
-            self.set_power_level(power_level.into());
+            self.set_power_level(permissions.user_power_level(user.user_id()));
         }
 
         /// Set the wanted power level of the member.

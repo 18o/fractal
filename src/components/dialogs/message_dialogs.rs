@@ -7,7 +7,7 @@ use crate::{
     i18n::gettext_f,
     ngettext_f,
     prelude::*,
-    session::model::{Member, Membership, Room, RoomCategory},
+    session::model::{Member, Membership, Room, RoomCategory, User},
 };
 
 /// Show a dialog to confirm leaving a room.
@@ -358,7 +358,7 @@ pub(crate) struct ConfirmRoomMemberDestructiveActionResponse {
 
 /// Show a dialog to confirm muting one or several room members.
 pub(crate) async fn confirm_mute_room_member_dialog(
-    members: &[Member],
+    members: &[impl IsA<User>],
     parent: &impl IsA<gtk::Widget>,
 ) -> bool {
     if members.is_empty() {
@@ -367,7 +367,8 @@ pub(crate) async fn confirm_mute_room_member_dialog(
 
     let first_member = members
         .first()
-        .expect("there should be at least one member");
+        .expect("there should be at least one member")
+        .upcast_ref();
     let count = members.len() as u32;
 
     let heading = ngettext_f(
@@ -406,7 +407,7 @@ pub(crate) async fn confirm_mute_room_member_dialog(
 /// Show a dialog to confirm setting the power level of one or several room
 /// members with the same value as our own.
 pub(crate) async fn confirm_set_room_member_power_level_same_as_own_dialog(
-    members: &[Member],
+    members: &[impl IsA<User>],
     parent: &impl IsA<gtk::Widget>,
 ) -> bool {
     if members.is_empty() {
@@ -415,7 +416,8 @@ pub(crate) async fn confirm_set_room_member_power_level_same_as_own_dialog(
 
     let first_member = members
         .first()
-        .expect("there should be at least one member");
+        .expect("there should be at least one member")
+        .upcast_ref();
     let count = members.len() as u32;
 
     let heading = ngettext_f(

@@ -500,6 +500,11 @@ impl Permissions {
         self.imp().power_levels.borrow().clone()
     }
 
+    /// The power level for the user with the given ID.
+    pub(crate) fn user_power_level(&self, user_id: &UserId) -> PowerLevel {
+        self.imp().power_levels.borrow().for_user(user_id).into()
+    }
+
     /// The current [`MemberRole`] for the given power level.
     pub(crate) fn role(&self, power_level: PowerLevel) -> MemberRole {
         if power_level >= POWER_LEVEL_ADMIN {
