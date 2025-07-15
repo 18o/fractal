@@ -3,7 +3,7 @@ use gtk::{
     CompositeTemplate, glib,
     glib::{clone, closure, closure_local},
 };
-use ruma::{OwnedUserId, events::room::power_levels::PowerLevelUserAction};
+use ruma::OwnedUserId;
 use tracing::error;
 
 use super::{MemberPowerLevel, PermissionsSelectMemberRow, PrivilegedMembers};
@@ -120,11 +120,9 @@ mod imp {
                             return false;
                         };
 
-                        // Filter out members whose power level cannot be changed.
-                        permissions.can_do_to_user(
-                            member.user_id(),
-                            PowerLevelUserAction::ChangePowerLevel,
-                        )
+                        // Since this is a view to add custom power levels, filter out members with
+                        // a custom power level already.
+                        member.power_level() == permissions.default_power_level()
                     }
                 ));
             }

@@ -31,36 +31,21 @@
               <class name="title"/>
             </style>
             <child>
-              <object class="GtkBox">
-                <property name="spacing">6</property>
-                <child>
-                  <object class="GtkLabel" id="display-name">
-                    <property name="halign">start</property>
-                    <property name="ellipsize">end</property>
-                    <binding name="label">
-                      <lookup name="display-name">
-                        <lookup name="member">RoomDetailsPermissionsSelectMemberRow</lookup>
-                      </lookup>
-                    </binding>
-                    <style>
-                      <class name="title"/>
-                    </style>
-                  </object>
-                </child>
-                <child>
-                  <object class="RoleBadge" id="role_badge">
-                    <property name="visible" bind-source="role_badge" bind-property="is-default-role" bind-flags="sync-create | invert-boolean"/>
-                    <binding name="role">
-                      <lookup name="role">
-                        <lookup name="member">RoomDetailsPermissionsSelectMemberRow</lookup>
-                      </lookup>
-                    </binding>
-                  </object>
-                </child>
+              <object class="GtkLabel">
+                <property name="halign">start</property>
+                <property name="ellipsize">end</property>
+                <binding name="label">
+                  <lookup name="display-name">
+                    <lookup name="member">RoomDetailsPermissionsSelectMemberRow</lookup>
+                  </lookup>
+                </binding>
+                <style>
+                  <class name="title"/>
+                </style>
               </object>
             </child>
             <child>
-              <object class="GtkLabel" id="subtitle">
+              <object class="GtkLabel">
                 <property name="hexpand">True</property>
                 <property name="halign">start</property>
                 <property name="ellipsize">end</property>
@@ -77,7 +62,7 @@
           </object>
         </child>
         <child>
-          <object class="GtkCheckButton" id="check_button">
+          <object class="GtkCheckButton">
             <property name="focusable">False</property>
             <property name="active" bind-source="RoomDetailsPermissionsSelectMemberRow" bind-property="selected" bind-flags="sync-create | bidirectional" />
           </object>
